@@ -762,13 +762,19 @@ async function decryptFile() {
 /* ─── Share encrypted file ───────────────────────────────────────── */
 async function shareEncrypted() {
     if (!encryptedBlob || !encryptedFname) return;
-    const shareFile = new File([encryptedBlob], encryptedFname, { type: "application/octet-stream" });
+    // Chrome restricts Web Share to an allowlist of MIME types; .enc files
+    // are blocked. Sharing without a type bypasses the allowlist check on
+    // most Android browsers and lets the OS pick the handler.
+    const shareFile = new File([encryptedBlob], encryptedFname, { type: "" });
     try {
         await navigator.share({ files: [shareFile], title: "Encrypted Photo" });
     } catch (e) {
-        if (e.name !== 'AbortError') {
-            setStatus("Share failed: " + e.message, "error");
-        }
+        if (e.name === 'AbortError') return; // user cancelled — not an error
+        // Fallback: file is already in Downloads — guide user to share from there
+        setStatus(
+            "Direct share blocked by browser. Open your Files / Downloads app and share "" + encryptedFname + "" from there to WhatsApp.",
+            "info"
+        );
     }
 }
 
