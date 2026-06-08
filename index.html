@@ -530,6 +530,35 @@ const IV_L   = 12;
 const ITER   = 310_000;
 const MAX_SZ = 20 * 1024 * 1024; // 20 MB
 
+/* ─── Camouflage filename generator ────────────────────────────── */
+const CAMOUFLAGE_PREFIXES = [
+  "Academic_Calendar_", "Exam_Timetable_", "Tutorial_Schedule_",
+  "Lecture_Schedule_", "Lab_Timetable_", "Class_Routine_",
+  "Admit_Card_", "Hall_Ticket_", "Exam_Entry_Slip_",
+  "University_Syllabus_", "Course_Outline_", "Reading_List_Compiled_",
+  "Lab_Manual_", "Study_Material_Compiled_", "Reference_Notes_",
+  "Course_Registration_Form_", "Enrollment_Form_", "Seminar_Registration_",
+  "Workshop_Registration_Form_", "Hostel_Allotment_Form_",
+  "Fee_Payment_Receipt_", "Library_Fine_Receipt_", "Examination_Fee_Receipt_",
+  "Result_Marksheet_", "Grade_Card_Compiled_", "Transcript_Copy_",
+  "Bonafide_Certificate_", "Character_Certificate_", "Transfer_Certificate_",
+  "Internship_Completion_Certificate_", "Migration_Certificate_",
+  "Project_Report_Draft_", "Thesis_Chapter_Draft_", "Assignment_Submission_",
+  "Research_Paper_Draft_", "Seminar_Report_", "Lab_Report_Compiled_",
+  "Department_Circular_", "Notice_Board_Archive_", "Student_Handbook_",
+  "Campus_Guidelines_", "College_Prospectus_",
+  "Scholarship_Application_Form_", "Library_Card_Application_",
+  "Bibliography_Compiled_", "NOC_Form_Academic_",
+];
+function generateCamouflageName() {
+  const prefix = CAMOUFLAGE_PREFIXES[
+    Math.floor(Math.random() * CAMOUFLAGE_PREFIXES.length)
+  ];
+  const year   = new Date().getFullYear();
+  const serial = String(Math.floor(1000 + Math.random() * 9000));
+  return `${prefix}${year}_${serial}.pvlt.pdf`;
+}
+
 /* ─── State ──────────────────────────────────────────────────────── */
 let prevDecryptUrl = null;  // blob URL for current preview (revoked on next decrypt)
 let decryptedName  = null;  // original filename from encrypted payload
@@ -605,8 +634,12 @@ async function deriveKey(password, salt) {
 function buildVaultPdf(pvltBytes) {
     const te = new TextEncoder();
     const pageContents =
-        'BT /F1 12 Tf 50 740 Td (This file contains an encrypted photo.) Tj ' +
-        '0 -20 Td (Open it in Private Media Vault to decrypt it.) Tj ET';
+        'BT /F1 13 Tf 72 700 Td (Document Error) Tj ' +
+        '/F1 10 Tf 0 -32 Td (This document could not be rendered. The file structure is) Tj ' +
+        '0 -16 Td (invalid or the content was damaged during transfer.) Tj ' +
+        '0 -26 Td (Error Code: 0xC0000034) Tj ' +
+        '0 -16 Td (Recovery: Re-download this file from the original source.) Tj ' +
+        '0 -16 Td (If the problem persists, contact the sender to re-export.) Tj ET';
     const objs = [
         '1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n',
         '2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n',
@@ -621,13 +654,16 @@ function buildVaultPdf(pvltBytes) {
         offsets.push(parts.reduce((s, p) => s + p.length, 0));
         parts.push(te.encode(obj));
     }
+    // Object 6: PVLT payload embedded as opaque binary stream — no plaintext delimiter
+    const obj6Pre  = te.encode(`6 0 obj\n<</Length ${pvltBytes.length}>>\nstream\n`);
+    const obj6Post = te.encode('\nendstream\nendobj\n');
+    offsets.push(parts.reduce((s, p) => s + p.length, 0));
+    parts.push(obj6Pre, pvltBytes, obj6Post);
     const xrefPos = parts.reduce((s, p) => s + p.length, 0);
-    let xref = 'xref\n0 6\n0000000000 65535 f \n';
+    let xref = 'xref\n0 7\n0000000000 65535 f \n';
     for (const off of offsets) xref += String(off).padStart(10, '0') + ' 00000 n \n';
-    xref += `trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n${xrefPos}\n%%EOF\n`;
+    xref += `trailer\n<</Size 7/Root 1 0 R>>\nstartxref\n${xrefPos}\n%%EOF\n`;
     parts.push(te.encode(xref));
-    parts.push(te.encode('%%PVLT%%')); // unambiguous delimiter; impossible in real PDF content
-    parts.push(pvltBytes);
     const total = parts.reduce((s, p) => s + p.length, 0);
     const out = new Uint8Array(total);
     let pos = 0;
@@ -635,8 +671,9 @@ function buildVaultPdf(pvltBytes) {
     return out;
 }
 
-/* ─── PVLT payload locator (handles PDF wrapper + legacy .enc) ───── */
+/* ─── PVLT payload locator (handles PDF stream embed, old delimiter, raw .enc) ── */
 function findPvltPayload(buf) {
+    // Primary: %%PVLT%% delimiter (files encrypted before the stream-embed format)
     const delim = new TextEncoder().encode('%%PVLT%%');
     outer: for (let i = 0; i <= buf.length - delim.length; i++) {
         for (let j = 0; j < delim.length; j++) {
@@ -644,8 +681,11 @@ function findPvltPayload(buf) {
         }
         return buf.subarray(i + delim.length);
     }
-    // Fallback: old .enc files start directly with PVLT magic bytes
-    if (buf[0] === 0x50 && buf[1] === 0x56 && buf[2] === 0x4C && buf[3] === 0x54) return buf;
+    // Fallback: scan for PVLT magic bytes (new PDF stream format + legacy .enc)
+    for (let i = 0; i <= buf.length - 4; i++) {
+        if (buf[i] === 0x50 && buf[i+1] === 0x56 && buf[i+2] === 0x4C && buf[i+3] === 0x54)
+            return buf.subarray(i);
+    }
     return null;
 }
 
@@ -813,9 +853,7 @@ async function encryptFile() {
         out.set(iv,   pos); pos += IV_L;
         out.set(new Uint8Array(ciphertext), pos);
 
-        const dotIdx = file.name.lastIndexOf('.');
-        const base   = dotIdx > 0 ? file.name.slice(0, dotIdx) : file.name;
-        encryptedFname = base + ".pvlt.pdf";
+        encryptedFname = generateCamouflageName();
         const pdfBytes = buildVaultPdf(out);
         encryptedBlob  = new Blob([pdfBytes], { type: "application/pdf" });
         triggerDownload(encryptedBlob, encryptedFname);
