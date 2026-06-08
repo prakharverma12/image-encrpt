@@ -310,6 +310,29 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
 
+        .reveal-btn {
+            display: none;
+            width: 100%;
+            margin-top: 12px;
+            padding: 14px;
+            background: #1a1a2e;
+            border: 2px solid #e94560;
+            border-radius: 8px;
+            color: #e94560;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            transition: background 0.15s, color 0.15s;
+        }
+        .reveal-btn:active,
+        .reveal-btn.pressing {
+            background: #e94560;
+            color: #fff;
+        }
+
         #save-btn {
             display: none;
             width: 100%;
@@ -494,7 +517,8 @@
 
         <!-- Status, preview, save -->
         <div class="status" id="statusMsg"></div>
-        <img id="preview" alt="Decrypted image">
+        <canvas id="preview"></canvas>
+        <button id="reveal-btn" class="reveal-btn">&#128065; Hold to Reveal</button>
         <button id="save-btn" onclick="saveDecrypted()">Save Image</button>
 
     </div>
@@ -592,6 +616,7 @@ const EFF_WORDS = ["acid","acorn","acre","acts","afar","affix","aged","agent","a
 /* ─── State ──────────────────────────────────────────────────────── */
 let prevDecryptUrl = null;  // blob URL for current preview (revoked on next decrypt)
 let decryptedName  = null;  // original filename from encrypted payload
+let revealImg      = null;  // preloaded Image object for instant canvas draw
 let iosUrl         = null;  // kept alive for manual iOS tap
 let encryptedBlob  = null;  // last encrypted output blob (for share button)
 let encryptedFname = null;  // corresponding filename
@@ -601,11 +626,43 @@ let wipeTimer      = null;  // ephemeral memory auto-wipe timer
 function wipeDecryptedPreview() {
     if (prevDecryptUrl) { URL.revokeObjectURL(prevDecryptUrl); prevDecryptUrl = null; }
     decryptedName = null;
+    revealImg = null;
     const preview = document.getElementById('preview');
-    preview.src = ''; preview.style.display = 'none';
+    const ctx = preview.getContext('2d');
+    ctx.clearRect(0, 0, preview.width, preview.height);
+    preview.style.display = 'none';
+    document.getElementById('reveal-btn').style.display = 'none';
     document.getElementById('save-btn').style.display = 'none';
     if (wipeTimer) { clearTimeout(wipeTimer); wipeTimer = null; }
 }
+
+function startReveal(e) {
+    e.preventDefault();
+    if (!revealImg) return;
+    const canvas = document.getElementById('preview');
+    if (canvas.width !== revealImg.naturalWidth || canvas.height !== revealImg.naturalHeight) {
+        canvas.width  = revealImg.naturalWidth  || canvas.offsetWidth;
+        canvas.height = revealImg.naturalHeight || canvas.offsetHeight;
+    }
+    canvas.getContext('2d').drawImage(revealImg, 0, 0, canvas.width, canvas.height);
+    canvas.style.display = 'block';
+    document.getElementById('reveal-btn').classList.add('pressing');
+}
+
+function stopReveal() {
+    const canvas = document.getElementById('preview');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    canvas.style.display = 'none';
+    document.getElementById('reveal-btn').classList.remove('pressing');
+}
+
+(function () {
+    const btn = document.getElementById('reveal-btn');
+    btn.addEventListener('pointerdown',   startReveal);
+    btn.addEventListener('pointerup',     stopReveal);
+    btn.addEventListener('pointerleave',  stopReveal);
+    btn.addEventListener('pointercancel', stopReveal);
+})();
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
         const hadSensitiveContent = prevDecryptUrl !== null || decryptedName !== null;
@@ -1099,9 +1156,11 @@ async function decryptFile() {
         imgData.fill(0);  // Blob has its own copy; zero our typed array
         decryptedName  = fname;
 
-        const preview = document.getElementById('preview');
-        preview.src           = prevDecryptUrl;
-        preview.style.display = 'block';
+        // Preload image so the first canvas draw is instant
+        revealImg = new Image();
+        revealImg.src = prevDecryptUrl;
+
+        document.getElementById('reveal-btn').style.display = 'block';
 
         const saveBtn = document.getElementById('save-btn');
         saveBtn.textContent   = `Save "${fname}"`;
@@ -1111,7 +1170,7 @@ async function decryptFile() {
         if (wipeTimer) clearTimeout(wipeTimer);
         wipeTimer = setTimeout(wipeDecryptedPreview, 30_000);
 
-        setStatus("Decryption successful! Preview auto-clears in 30 s.", "success");
+        setStatus("Decryption successful! Hold the button below to view. Auto-clears in 30 s.", "success");
     } catch (e) {
         setStatus("Decryption failed: " + e.message, "error");
         console.error(e);
