@@ -517,8 +517,8 @@
 
         <!-- Status, preview, save -->
         <div class="status" id="statusMsg"></div>
-        <button id="reveal-btn" class="reveal-btn">&#128065; Hold to Reveal</button>
         <canvas id="preview"></canvas>
+        <button id="reveal-btn" class="reveal-btn">&#128065; Hold to Reveal</button>
         <button id="save-btn" onclick="saveDecrypted()">Save Image</button>
 
     </div>
@@ -658,6 +658,7 @@ function startReveal(e) {
     }
     canvas.getContext('2d').drawImage(revealImg, 0, 0, canvas.width, canvas.height);
     canvas.style.display = 'block';
+    canvas.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     document.getElementById('reveal-btn').classList.add('pressing');
 }
 
