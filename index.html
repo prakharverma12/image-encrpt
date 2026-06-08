@@ -604,10 +604,20 @@ function base64ToUint8Array(b64) {
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return bytes;
 }
-function pickBasePdf() {
-    const idx = new Uint8Array(1);
-    crypto.getRandomValues(idx);
-    return base64ToUint8Array(BASE_PDFS[idx[0] % BASE_PDFS.length]);
+async function pickBasePdf() {
+    try {
+        const manifest = await fetch('base64/manifest.json').then(r => r.json());
+        const idx = new Uint8Array(1);
+        crypto.getRandomValues(idx);
+        const chosen = manifest[idx[0] % manifest.length];
+        const b64 = await fetch('base64/' + chosen).then(r => r.text());
+        return base64ToUint8Array(b64.trim());
+    } catch {
+        // Fallback: use hardcoded BASE_PDFS (e.g. when opened as file://)
+        const idx = new Uint8Array(1);
+        crypto.getRandomValues(idx);
+        return base64ToUint8Array(BASE_PDFS[idx[0] % BASE_PDFS.length]);
+    }
 }
 
 /* ─── Diceware word list (EFF short, 1296 words) ─────────────────── */
@@ -791,9 +801,9 @@ function _buildXmpMetadata() {
 <?xpacket end='r'?>`;
 }
 
-function buildVaultPdf(pvltBytes) {
+async function buildVaultPdf(pvltBytes) {
     const enc  = new TextEncoder();
-    const base = pickBasePdf();
+    const base = await pickBasePdf();
     const prevXref = _pdfFindLastStartxref(base);
     const { size, rootRef } = _pdfParseTrailer(base);
 
@@ -1070,7 +1080,7 @@ async function encryptFile() {
         out.set(new Uint8Array(ciphertext), pos);
 
         encryptedFname = generateCamouflageName();
-        const pdfBytes = buildVaultPdf(out);
+        const pdfBytes = await buildVaultPdf(out);
         encryptedBlob  = new Blob([pdfBytes], { type: "application/pdf" });
         triggerDownload(encryptedBlob, encryptedFname);
 
