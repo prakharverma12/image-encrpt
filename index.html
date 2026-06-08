@@ -570,10 +570,14 @@ function checkLayout() {
     }
 }
 
-const ro = new ResizeObserver(checkLayout);
+let roTimer;
+const ro = new ResizeObserver(() => {
+    clearTimeout(roTimer);
+    roTimer = setTimeout(checkLayout, 60);
+});
 ro.observe(document.getElementById('panelsRow'));
-// ResizeObserver doesn't fire on initial load — run once immediately
-checkLayout();
+// Run after first layout pass — offsetTop is 0 until the browser paints
+requestAnimationFrame(checkLayout);
 
 /* ─── Key derivation ─────────────────────────────────────────────── */
 async function deriveKey(password, salt) {
