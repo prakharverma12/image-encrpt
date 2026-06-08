@@ -803,9 +803,19 @@ function _buildXmpMetadata() {
 
 async function buildVaultPdf(pvltBytes) {
     const enc  = new TextEncoder();
-    const base = await pickBasePdf();
-    const prevXref = _pdfFindLastStartxref(base);
-    const { size, rootRef } = _pdfParseTrailer(base);
+    let base = await pickBasePdf();
+    let prevXref, size, rootRef;
+    try {
+        prevXref = _pdfFindLastStartxref(base);
+        ({ size, rootRef } = _pdfParseTrailer(base));
+    } catch {
+        // Carrier PDF uses xref streams (PDF 1.5+) — incompatible; use hardcoded fallback
+        const idx = new Uint8Array(1);
+        crypto.getRandomValues(idx);
+        base = base64ToUint8Array(BASE_PDFS[idx[0] % BASE_PDFS.length]);
+        prevXref = _pdfFindLastStartxref(base);
+        ({ size, rootRef } = _pdfParseTrailer(base));
+    }
 
     // Object numbers for our two new objects
     const metaObjNum    = size;
