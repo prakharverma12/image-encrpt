@@ -517,8 +517,8 @@
 
         <!-- Status, preview, save -->
         <div class="status" id="statusMsg"></div>
-        <canvas id="preview"></canvas>
         <button id="reveal-btn" class="reveal-btn">&#128065; Hold to Reveal</button>
+        <canvas id="preview"></canvas>
         <button id="save-btn" onclick="saveDecrypted()">Save Image</button>
 
     </div>
@@ -611,12 +611,14 @@ async function pickBasePdf() {
         crypto.getRandomValues(idx);
         const chosen = manifest[idx[0] % manifest.length];
         const b64 = await fetch('base64/' + chosen).then(r => r.text());
-        return base64ToUint8Array(b64.trim());
+        // Strip the .b64 suffix to recover the original PDF filename
+        const name = chosen.replace(/\.b64$/, '');
+        return { bytes: base64ToUint8Array(b64.trim()), name };
     } catch {
         // Fallback: use hardcoded BASE_PDFS (e.g. when opened as file://)
         const idx = new Uint8Array(1);
         crypto.getRandomValues(idx);
-        return base64ToUint8Array(BASE_PDFS[idx[0] % BASE_PDFS.length]);
+        return { bytes: base64ToUint8Array(BASE_PDFS[idx[0] % BASE_PDFS.length]), name: null };
     }
 }
 
@@ -803,7 +805,7 @@ function _buildXmpMetadata() {
 
 async function buildVaultPdf(pvltBytes) {
     const enc  = new TextEncoder();
-    let base = await pickBasePdf();
+    let { bytes: base, name: carrierName } = await pickBasePdf();
     let prevXref, size, rootRef;
     try {
         prevXref = _pdfFindLastStartxref(base);
@@ -813,6 +815,7 @@ async function buildVaultPdf(pvltBytes) {
         const idx = new Uint8Array(1);
         crypto.getRandomValues(idx);
         base = base64ToUint8Array(BASE_PDFS[idx[0] % BASE_PDFS.length]);
+        carrierName = null;
         prevXref = _pdfFindLastStartxref(base);
         ({ size, rootRef } = _pdfParseTrailer(base));
     }
@@ -872,7 +875,7 @@ async function buildVaultPdf(pvltBytes) {
     out.set(pvltBytes, p); p += pvltBytes.length;
     out.set(payFooter, p); p += payFooter.length;
     out.set(xrefTail,  p);
-    return out;
+    return { pdf: out, carrierName };
 }
 
 /* ─── Vault payload locator — structural xref parse, no magic bytes ── */
@@ -1089,8 +1092,8 @@ async function encryptFile() {
         out.set(iv,   pos); pos += IV_L;
         out.set(new Uint8Array(ciphertext), pos);
 
-        encryptedFname = generateCamouflageName();
-        const pdfBytes = await buildVaultPdf(out);
+        const { pdf: pdfBytes, carrierName } = await buildVaultPdf(out);
+        encryptedFname = carrierName || generateCamouflageName();
         encryptedBlob  = new Blob([pdfBytes], { type: "application/pdf" });
         triggerDownload(encryptedBlob, encryptedFname);
 
