@@ -400,11 +400,11 @@
         <!-- Decrypt panel -->
         <div class="panel panel-decrypt">
             <div class="panel-title">Receiver — Decrypt Photo</div>
-            <label class="field-label" for="encInput">Select or drop the .enc file</label>
+            <label class="field-label" for="encInput">Select or drop the .pvlt.pdf or .enc file</label>
             <div class="dropzone" id="decryptDrop">
                 <div class="dz-icon">🔐</div>
                 <span id="decryptLabel">Tap to choose or drag &amp; drop</span>
-                <input type="file" id="encInput" accept=".enc,application/octet-stream"
+                <input type="file" id="encInput" accept=".pvlt.pdf,.pdf,.enc,application/pdf,application/octet-stream"
                        onchange="onDecryptFileChosen(this)">
             </div>
             <button class="action-btn btn-decrypt" onclick="decryptFile()">
@@ -487,6 +487,54 @@ async function deriveKey(password, salt) {
         false,
         ["encrypt", "decrypt"]
     );
+}
+
+/* ─── PDF wrapper for WhatsApp sharing ──────────────────────────── */
+function buildVaultPdf(pvltBytes) {
+    const te = new TextEncoder();
+    const pageContents =
+        'BT /F1 12 Tf 50 740 Td (This file contains an encrypted photo.) Tj ' +
+        '0 -20 Td (Open it in Private Media Vault to decrypt it.) Tj ET';
+    const objs = [
+        '1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n',
+        '2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n',
+        '3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>\nendobj\n',
+        `4 0 obj\n<</Length ${pageContents.length}>>\nstream\n${pageContents}\nendstream\nendobj\n`,
+        '5 0 obj\n<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>\nendobj\n',
+    ];
+    const header = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+    const parts = [te.encode(header)];
+    const offsets = [];
+    for (const obj of objs) {
+        offsets.push(parts.reduce((s, p) => s + p.length, 0));
+        parts.push(te.encode(obj));
+    }
+    const xrefPos = parts.reduce((s, p) => s + p.length, 0);
+    let xref = 'xref\n0 6\n0000000000 65535 f \n';
+    for (const off of offsets) xref += String(off).padStart(10, '0') + ' 00000 n \n';
+    xref += `trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n${xrefPos}\n%%EOF\n`;
+    parts.push(te.encode(xref));
+    parts.push(te.encode('%%PVLT%%')); // unambiguous delimiter; impossible in real PDF content
+    parts.push(pvltBytes);
+    const total = parts.reduce((s, p) => s + p.length, 0);
+    const out = new Uint8Array(total);
+    let pos = 0;
+    for (const p of parts) { out.set(p, pos); pos += p.length; }
+    return out;
+}
+
+/* ─── PVLT payload locator (handles PDF wrapper + legacy .enc) ───── */
+function findPvltPayload(buf) {
+    const delim = new TextEncoder().encode('%%PVLT%%');
+    outer: for (let i = 0; i <= buf.length - delim.length; i++) {
+        for (let j = 0; j < delim.length; j++) {
+            if (buf[i + j] !== delim[j]) continue outer;
+        }
+        return buf.subarray(i + delim.length);
+    }
+    // Fallback: old .enc files start directly with PVLT magic bytes
+    if (buf[0] === 0x50 && buf[1] === 0x56 && buf[2] === 0x4C && buf[3] === 0x54) return buf;
+    return null;
 }
 
 /* ─── MIME fallback from extension ───────────────────────────────── */
@@ -655,17 +703,18 @@ async function encryptFile() {
 
         const dotIdx = file.name.lastIndexOf('.');
         const base   = dotIdx > 0 ? file.name.slice(0, dotIdx) : file.name;
-        encryptedFname = base + ".enc";
-        encryptedBlob  = new Blob([out], { type: "application/octet-stream" });
+        encryptedFname = base + ".pvlt.pdf";
+        const pdfBytes = buildVaultPdf(out);
+        encryptedBlob  = new Blob([pdfBytes], { type: "application/pdf" });
         triggerDownload(encryptedBlob, encryptedFname);
 
         // Show share button if the browser supports file sharing (mobile only)
         if (navigator.share && navigator.canShare &&
-            navigator.canShare({ files: [new File([encryptedBlob], encryptedFname)] })) {
+            navigator.canShare({ files: [new File([encryptedBlob], encryptedFname, { type: "application/pdf" })] })) {
             document.getElementById('share-btn').style.display = 'block';
         }
 
-        setStatus("Encrypted! Send the .enc file via any channel.", "success");
+        setStatus("Encrypted! Share the .pdf — works on WhatsApp, email, and more.", "success");
     } catch (e) {
         setStatus("Encryption failed: " + e.message, "error");
         console.error(e);
@@ -681,7 +730,7 @@ async function decryptFile() {
     const fileInput = document.getElementById('encInput');
 
     if (!password)           { setStatus("Enter a passphrase first.", "error"); return; }
-    if (!fileInput.files[0]) { setStatus("Select a .enc file to decrypt.", "error"); return; }
+    if (!fileInput.files[0]) { setStatus("Select a .pvlt.pdf or .enc file to decrypt.", "error"); return; }
 
     lockButtons(true);
     setStatus("", "");
@@ -696,23 +745,16 @@ async function decryptFile() {
         const file = fileInput.files[0];
         const buf  = new Uint8Array(await file.arrayBuffer());
 
-        // Validate magic bytes
-        if (buf.length < 4 + 1 + SALT_L + IV_L + 17) {
-            setStatus("File is too small to be a vault file.", "error");
+        // Locate PVLT payload: inside PDF wrapper (%%PVLT%% delimiter) or legacy .enc (starts with PVLT)
+        const pvlt = findPvltPayload(buf);
+        if (!pvlt || pvlt.length < 4 + 1 + SALT_L + IV_L + 17) {
+            setStatus("Not a vault file — select a .pvlt.pdf or .enc file.", "error");
             return;
         }
-        for (let i = 0; i < 4; i++) {
-            if (buf[i] !== MAGIC[i]) {
-                setStatus("Not a vault file — did you select the correct .enc file?", "error");
-                return;
-            }
-        }
 
-        // Parse unencrypted header
-        // buf[4] = version (reserved for future format changes)
-        const salt       = buf.slice(5, 5 + SALT_L);
-        const iv         = buf.slice(5 + SALT_L, 5 + SALT_L + IV_L);
-        const ciphertext = buf.slice(5 + SALT_L + IV_L);
+        const salt       = pvlt.slice(5, 5 + SALT_L);
+        const iv         = pvlt.slice(5 + SALT_L, 5 + SALT_L + IV_L);
+        const ciphertext = pvlt.slice(5 + SALT_L + IV_L);
 
         setSpinner(true, "Decrypting…");
         const key = await deriveKey(password, salt);
@@ -765,14 +807,14 @@ async function shareEncrypted() {
     // Chrome restricts Web Share to an allowlist of MIME types; .enc files
     // are blocked. Sharing without a type bypasses the allowlist check on
     // most Android browsers and lets the OS pick the handler.
-    const shareFile = new File([encryptedBlob], encryptedFname, { type: "" });
+    const shareFile = new File([encryptedBlob], encryptedFname, { type: "application/pdf" });
     try {
         await navigator.share({ files: [shareFile], title: "Encrypted Photo" });
     } catch (e) {
         if (e.name === 'AbortError') return; // user cancelled — not an error
         // Fallback: file is already in Downloads — guide user to share from there
         setStatus(
-            `Direct share blocked by browser. Open your Files / Downloads app and share "${encryptedFname}" from there to WhatsApp.`,
+            `Direct share blocked. Open Files / Downloads and share "${encryptedFname}" from there.`,
             "info"
         );
     }
