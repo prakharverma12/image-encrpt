@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0d0d0d">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Media Vault">
     <title>Private Media Vault</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -12,43 +16,46 @@
             background: #0d0d0d;
             color: #e0e0e0;
             min-height: 100vh;
-            padding: 20px;
+            padding: clamp(0px, 2vw, 20px);
+            overscroll-behavior: none;
             display: flex;
             justify-content: center;
             align-items: flex-start;
         }
 
         .container {
-            max-width: 430px;
+            max-width: 880px;
             width: 100%;
             background: #1a1a1a;
-            border-radius: 14px;
+            border-radius: clamp(0px, 3vw, 14px);
             overflow: hidden;
             box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+            padding-bottom: env(safe-area-inset-bottom);
         }
 
         .header {
             background: linear-gradient(135deg, #1f1f1f, #2a1818);
-            padding: 22px 24px;
+            padding: clamp(14px, 3vw, 28px) clamp(16px, 4vw, 32px);
+            padding-top: calc(clamp(14px, 3vw, 28px) + env(safe-area-inset-top));
             text-align: center;
             border-bottom: 1px solid #2a2a2a;
         }
 
         h1 {
-            font-size: 20px;
+            font-size: clamp(17px, 4vw, 24px);
             color: #ff4757;
             letter-spacing: 1px;
             font-weight: 700;
         }
 
         .subtitle {
-            font-size: 11px;
+            font-size: clamp(10px, 2vw, 12px);
             color: #666;
             margin-top: 5px;
             letter-spacing: 0.5px;
         }
 
-        .section { padding: 20px; }
+        .section { padding: clamp(14px, 3vw, 24px); }
 
         /* Passphrase row */
         .field-label {
@@ -72,7 +79,7 @@
             border: 1px solid #2e2e2e;
             background: #252525;
             color: #fff;
-            font-size: 15px;
+            font-size: 16px;
             outline: none;
             transition: border-color 0.15s;
         }
@@ -89,16 +96,53 @@
             font-size: 13px;
             font-weight: 600;
             white-space: nowrap;
+            touch-action: manipulation;
             transition: background 0.15s, color 0.15s;
         }
-
-        .toggle-btn:hover { background: #2e2e2e; color: #ccc; }
 
         .divider {
             border: none;
             border-top: 1px solid #222;
             margin: 0;
         }
+
+        /* Tab bar — hidden by default, JS enables when panels stack */
+        .tab-bar {
+            display: none;
+            background: #111;
+            border-radius: 10px;
+            padding: 4px;
+            margin-bottom: 14px;
+            gap: 4px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            color: #666;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            touch-action: manipulation;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .tab.active { background: #1e1e1e; color: #e0e0e0; }
+
+        .panel.hidden { display: none; }
+
+        /* Intrinsic two-column grid — no @media breakpoint */
+        .panels-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-bottom: 4px;
+        }
+
+        .panels-row .panel { margin-bottom: 0; }
 
         /* Panels */
         .panel {
@@ -137,10 +181,11 @@
             font-size: 13px;
             color: #666;
             cursor: pointer;
+            touch-action: manipulation;
             transition: border-color 0.15s, background 0.15s, color 0.15s;
             margin: 10px 0;
             position: relative;
-            min-height: 76px;
+            min-height: 96px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -148,7 +193,7 @@
             gap: 4px;
         }
 
-        .dropzone:hover, .dropzone.drag-over {
+        .dropzone.drag-over {
             border-color: #555;
             background: rgba(255,255,255,0.03);
             color: #aaa;
@@ -179,6 +224,7 @@
             cursor: pointer;
             font-size: 15px;
             letter-spacing: 0.3px;
+            touch-action: manipulation;
             transition: opacity 0.15s, transform 0.1s;
         }
 
@@ -276,10 +322,9 @@
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
+            touch-action: manipulation;
             transition: background 0.15s;
         }
-
-        #save-btn:hover { background: #2e2e2e; }
 
         #share-btn {
             display: none;
@@ -292,6 +337,7 @@
             cursor: pointer;
             font-size: 15px;
             letter-spacing: 0.3px;
+            touch-action: manipulation;
             transition: opacity 0.15s, transform 0.1s;
             background: linear-gradient(135deg, #25D366, #1ebe5a);
             color: #fff;
@@ -311,6 +357,7 @@
             font-size: 12px;
             color: #666;
             user-select: none;
+            touch-action: manipulation;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -344,6 +391,20 @@
             line-height: 1.5;
             text-align: center;
         }
+
+        /* Hover styles — only for real pointer devices */
+        @media (hover: hover) {
+            .dropzone:hover {
+                border-color: #555;
+                background: rgba(255,255,255,0.03);
+                color: #aaa;
+            }
+            .toggle-btn:hover { background: #2e2e2e; color: #ccc; }
+            .action-btn:hover  { opacity: 0.88; }
+            #share-btn:hover   { opacity: 0.88; }
+            #save-btn:hover    { background: #2e2e2e; }
+            .tab:hover:not(.active) { color: #aaa; background: rgba(255,255,255,0.04); }
+        }
     </style>
 </head>
 <body>
@@ -376,41 +437,52 @@
 
     <div class="section">
 
-        <!-- Encrypt panel -->
-        <div class="panel panel-encrypt">
-            <div class="panel-title">Sender — Encrypt Photo</div>
-            <label class="field-label" for="imageInput">Select or drop image (max 20 MB)</label>
-            <div class="dropzone" id="encryptDrop">
-                <div class="dz-icon">📷</div>
-                <span id="encryptLabel">Tap to choose or drag &amp; drop</span>
-                <input type="file" id="imageInput" accept="image/*"
-                       onchange="onEncryptFileChosen(this)">
-            </div>
-            <div class="size-warning" id="sizeWarning">
-                This file exceeds 20 MB. Large files can crash mobile browsers.
-                Please choose a smaller or compressed image.
-            </div>
-            <button class="action-btn btn-encrypt" onclick="encryptFile()">
-                Encrypt &amp; Download
-            </button>
-            <a id="ios-link" href="#" download="">Tap here to save encrypted file</a>
-            <button id="share-btn" onclick="shareEncrypted()">Share via WhatsApp</button>
+        <!-- Tab bar — hidden until ResizeObserver detects panels are stacked -->
+        <div class="tab-bar" id="tabBar">
+            <button class="tab active" id="tab-encrypt" onclick="switchTab('encrypt')">🔒 Sender</button>
+            <button class="tab"        id="tab-decrypt" onclick="switchTab('decrypt')">🔓 Receiver</button>
         </div>
 
-        <!-- Decrypt panel -->
-        <div class="panel panel-decrypt">
-            <div class="panel-title">Receiver — Decrypt Photo</div>
-            <label class="field-label" for="encInput">Select or drop the .pvlt.pdf or .enc file</label>
-            <div class="dropzone" id="decryptDrop">
-                <div class="dz-icon">🔐</div>
-                <span id="decryptLabel">Tap to choose or drag &amp; drop</span>
-                <input type="file" id="encInput" accept=".pvlt.pdf,.pdf,.enc,application/pdf,application/octet-stream"
-                       onchange="onDecryptFileChosen(this)">
+        <!-- Two-column intrinsic grid — collapses to one column automatically -->
+        <div class="panels-row" id="panelsRow">
+
+            <!-- Encrypt panel -->
+            <div class="panel panel-encrypt" id="pane-encrypt">
+                <div class="panel-title">Sender — Encrypt Photo</div>
+                <label class="field-label" for="imageInput">Select or drop image (max 20 MB)</label>
+                <div class="dropzone" id="encryptDrop">
+                    <div class="dz-icon">📷</div>
+                    <span id="encryptLabel">Tap to choose or drag &amp; drop</span>
+                    <input type="file" id="imageInput" accept="image/*"
+                           onchange="onEncryptFileChosen(this)">
+                </div>
+                <div class="size-warning" id="sizeWarning">
+                    This file exceeds 20 MB. Large files can crash mobile browsers.
+                    Please choose a smaller or compressed image.
+                </div>
+                <button class="action-btn btn-encrypt" onclick="encryptFile()">
+                    Encrypt &amp; Download
+                </button>
+                <a id="ios-link" href="#" download="">Tap here to save encrypted file</a>
+                <button id="share-btn" onclick="shareEncrypted()">Share via WhatsApp</button>
             </div>
-            <button class="action-btn btn-decrypt" onclick="decryptFile()">
-                Decrypt &amp; View
-            </button>
-        </div>
+
+            <!-- Decrypt panel -->
+            <div class="panel panel-decrypt" id="pane-decrypt">
+                <div class="panel-title">Receiver — Decrypt Photo</div>
+                <label class="field-label" for="encInput">Select or drop the .pvlt.pdf or .enc file</label>
+                <div class="dropzone" id="decryptDrop">
+                    <div class="dz-icon">🔐</div>
+                    <span id="decryptLabel">Tap to choose or drag &amp; drop</span>
+                    <input type="file" id="encInput" accept=".pvlt.pdf,.pdf,.enc,application/pdf,application/octet-stream"
+                           onchange="onDecryptFileChosen(this)">
+                </div>
+                <button class="action-btn btn-decrypt" onclick="decryptFile()">
+                    Decrypt &amp; View
+                </button>
+            </div>
+
+        </div><!-- /.panels-row -->
 
         <!-- Spinner -->
         <div class="spinner-wrap" id="spinnerWrap">
@@ -470,6 +542,35 @@ if (!window.crypto || !window.crypto.subtle) {
     document.getElementById('crypto-warn').style.display = 'block';
     document.querySelectorAll('.action-btn').forEach(b => b.disabled = true);
 }
+
+/* ─── Tab bar + ResizeObserver ───────────────────────────────────── */
+const tabBar  = document.getElementById('tabBar');
+const paneEnc = document.getElementById('pane-encrypt');
+const paneDec = document.getElementById('pane-decrypt');
+let   activeTab = 'encrypt';
+
+function switchTab(which) {
+    activeTab = which;
+    paneEnc.classList.toggle('hidden', which !== 'encrypt');
+    paneDec.classList.toggle('hidden', which !== 'decrypt');
+    document.getElementById('tab-encrypt').classList.toggle('active', which === 'encrypt');
+    document.getElementById('tab-decrypt').classList.toggle('active', which === 'decrypt');
+}
+
+const ro = new ResizeObserver(() => {
+    const stacked = paneEnc.getBoundingClientRect().bottom
+                    <= paneDec.getBoundingClientRect().top + 2;
+    if (stacked) {
+        tabBar.style.display = 'flex';
+        paneEnc.classList.toggle('hidden', activeTab !== 'encrypt');
+        paneDec.classList.toggle('hidden', activeTab !== 'decrypt');
+    } else {
+        tabBar.style.display = 'none';
+        paneEnc.classList.remove('hidden');
+        paneDec.classList.remove('hidden');
+    }
+});
+ro.observe(document.getElementById('panelsRow'));
 
 /* ─── Key derivation ─────────────────────────────────────────────── */
 async function deriveKey(password, salt) {
