@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Private Media Vault</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0d0d0d;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .container {
+            max-width: 430px;
+            width: 100%;
+            background: #1a1a1a;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1f1f1f, #2a1818);
+            padding: 22px 24px;
+            text-align: center;
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        h1 {
+            font-size: 20px;
+            color: #ff4757;
+            letter-spacing: 1px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            font-size: 11px;
+            color: #666;
+            margin-top: 5px;
+            letter-spacing: 0.5px;
+        }
+
+        .section { padding: 20px; }
+
+        /* Passphrase row */
+        .field-label {
+            display: block;
+            margin-bottom: 7px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .pass-row { display: flex; gap: 8px; align-items: stretch; }
+        .pass-row input { flex: 1; }
+
+        input[type="password"],
+        input[type="text"] {
+            width: 100%;
+            padding: 11px 14px;
+            border-radius: 8px;
+            border: 1px solid #2e2e2e;
+            background: #252525;
+            color: #fff;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        input:focus { border-color: #555; }
+
+        .toggle-btn {
+            background: #252525;
+            border: 1px solid #2e2e2e;
+            color: #888;
+            border-radius: 8px;
+            padding: 0 14px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .toggle-btn:hover { background: #2e2e2e; color: #ccc; }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #222;
+            margin: 0;
+        }
+
+        /* Panels */
+        .panel {
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .panel-encrypt {
+            background: rgba(46, 213, 115, 0.06);
+            border: 1px solid rgba(46, 213, 115, 0.18);
+        }
+
+        .panel-decrypt {
+            background: rgba(30, 144, 255, 0.06);
+            border: 1px solid rgba(30, 144, 255, 0.18);
+        }
+
+        .panel-title {
+            font-weight: 700;
+            font-size: 13px;
+            margin-bottom: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+
+        .panel-encrypt .panel-title { color: #2ed573; }
+        .panel-decrypt .panel-title { color: #1e90ff; }
+
+        /* Dropzone */
+        .dropzone {
+            border: 2px dashed #333;
+            border-radius: 8px;
+            padding: 18px 12px;
+            text-align: center;
+            font-size: 13px;
+            color: #666;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s, color 0.15s;
+            margin: 10px 0;
+            position: relative;
+            min-height: 76px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        .dropzone:hover, .dropzone.drag-over {
+            border-color: #555;
+            background: rgba(255,255,255,0.03);
+            color: #aaa;
+        }
+
+        .dropzone input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+            font-size: 0;
+        }
+
+        .dz-icon { font-size: 24px; line-height: 1; }
+        .dz-selected { color: #2ed573 !important; font-weight: 600; }
+        .panel-decrypt .dz-selected { color: #1e90ff !important; }
+
+        /* Buttons */
+        .action-btn {
+            width: 100%;
+            padding: 13px;
+            margin-top: 10px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 15px;
+            letter-spacing: 0.3px;
+            transition: opacity 0.15s, transform 0.1s;
+        }
+
+        .action-btn:active { transform: scale(0.98); }
+        .action-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+        .btn-encrypt { background: linear-gradient(135deg, #2ed573, #23bb60); color: #000; }
+        .btn-decrypt { background: linear-gradient(135deg, #1e90ff, #1478d4); color: #fff; }
+
+        /* Warnings */
+        .size-warning {
+            background: rgba(255, 165, 2, 0.12);
+            border: 1px solid rgba(255, 165, 2, 0.35);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #ffa502;
+            margin-top: 8px;
+            display: none;
+            line-height: 1.5;
+        }
+
+        /* iOS fallback link */
+        #ios-link {
+            display: none;
+            text-align: center;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(30, 144, 255, 0.1);
+            border: 1px solid rgba(30, 144, 255, 0.3);
+            border-radius: 8px;
+            font-size: 13px;
+            color: #1e90ff;
+            text-decoration: none;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        /* Spinner */
+        .spinner-wrap {
+            display: none;
+            text-align: center;
+            padding: 14px 0 6px;
+        }
+
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid #2a2a2a;
+            border-top-color: #ff4757;
+            border-radius: 50%;
+            animation: spin 0.75s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .spinner-label {
+            font-size: 12px;
+            color: #777;
+            margin-top: 8px;
+        }
+
+        /* Status */
+        .status {
+            text-align: center;
+            font-size: 13px;
+            padding: 8px 4px 2px;
+            min-height: 28px;
+            line-height: 1.4;
+        }
+
+        .status.error   { color: #ff6b81; }
+        .status.success { color: #2ed573; }
+        .status.info    { color: #ffa502; }
+
+        /* Preview */
+        #preview {
+            width: 100%;
+            border-radius: 8px;
+            display: none;
+            margin-top: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        #save-btn {
+            display: none;
+            width: 100%;
+            padding: 11px;
+            margin-top: 10px;
+            background: #252525;
+            border: 1px solid #383838;
+            color: #ccc;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        #save-btn:hover { background: #2e2e2e; }
+
+        #share-btn {
+            display: none;
+            width: 100%;
+            padding: 13px;
+            margin-top: 10px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 15px;
+            letter-spacing: 0.3px;
+            transition: opacity 0.15s, transform 0.1s;
+            background: linear-gradient(135deg, #25D366, #1ebe5a);
+            color: #fff;
+        }
+
+        #share-btn:active { transform: scale(0.98); }
+        #share-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+        /* Security notes collapsible */
+        details {
+            border-top: 1px solid #222;
+        }
+
+        summary {
+            padding: 13px 20px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #666;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            list-style: none;
+        }
+
+        summary::-webkit-details-marker { display: none; }
+        summary::after { content: "▸"; display: inline-block; transition: transform 0.2s; }
+        details[open] summary::after { transform: rotate(90deg); }
+
+        .tips-body {
+            padding: 2px 20px 18px;
+            font-size: 12px;
+            color: #666;
+            line-height: 1.8;
+        }
+
+        .tips-body li { margin-left: 14px; margin-bottom: 4px; }
+        .tips-body strong { color: #999; }
+
+        /* HTTPS warning banner */
+        #crypto-warn {
+            display: none;
+            background: rgba(255, 71, 87, 0.15);
+            border: 1px solid rgba(255, 71, 87, 0.4);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 13px;
+            color: #ff6b81;
+            margin-bottom: 12px;
+            line-height: 1.5;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <div class="header">
+        <h1>Private Media Vault</h1>
+        <div class="subtitle">AES-256-GCM · PBKDF2-SHA256 · 310,000 iterations · Fully Offline</div>
+    </div>
+
+    <div class="section">
+
+        <div id="crypto-warn">
+            Web Crypto is unavailable. This app requires an <strong>HTTPS</strong> connection
+            (or localhost). Please use the hosted GitHub Pages URL instead of opening the file directly on iOS.
+        </div>
+
+        <label class="field-label" for="passphrase">Shared Secret Passphrase</label>
+        <div class="pass-row">
+            <input type="password" id="passphrase"
+                   placeholder="Enter your secret passphrase…"
+                   autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off">
+            <button class="toggle-btn" id="toggleBtn" onclick="togglePassphrase()">Show</button>
+        </div>
+
+    </div>
+
+    <hr class="divider">
+
+    <div class="section">
+
+        <!-- Encrypt panel -->
+        <div class="panel panel-encrypt">
+            <div class="panel-title">Sender — Encrypt Photo</div>
+            <label class="field-label" for="imageInput">Select or drop image (max 20 MB)</label>
+            <div class="dropzone" id="encryptDrop">
+                <div class="dz-icon">📷</div>
+                <span id="encryptLabel">Tap to choose or drag &amp; drop</span>
+                <input type="file" id="imageInput" accept="image/*"
+                       onchange="onEncryptFileChosen(this)">
+            </div>
+            <div class="size-warning" id="sizeWarning">
+                This file exceeds 20 MB. Large files can crash mobile browsers.
+                Please choose a smaller or compressed image.
+            </div>
+            <button class="action-btn btn-encrypt" onclick="encryptFile()">
+                Encrypt &amp; Download
+            </button>
+            <a id="ios-link" href="#" download="">Tap here to save encrypted file</a>
+            <button id="share-btn" onclick="shareEncrypted()">Share via WhatsApp</button>
+        </div>
+
+        <!-- Decrypt panel -->
+        <div class="panel panel-decrypt">
+            <div class="panel-title">Receiver — Decrypt Photo</div>
+            <label class="field-label" for="encInput">Select or drop the .enc file</label>
+            <div class="dropzone" id="decryptDrop">
+                <div class="dz-icon">🔐</div>
+                <span id="decryptLabel">Tap to choose or drag &amp; drop</span>
+                <input type="file" id="encInput" accept=".enc,application/octet-stream"
+                       onchange="onDecryptFileChosen(this)">
+            </div>
+            <button class="action-btn btn-decrypt" onclick="decryptFile()">
+                Decrypt &amp; View
+            </button>
+        </div>
+
+        <!-- Spinner -->
+        <div class="spinner-wrap" id="spinnerWrap">
+            <div class="spinner"></div>
+            <div class="spinner-label" id="spinnerLabel">Working…</div>
+        </div>
+
+        <!-- Status, preview, save -->
+        <div class="status" id="statusMsg"></div>
+        <img id="preview" alt="Decrypted image">
+        <button id="save-btn" onclick="saveDecrypted()">Save Image</button>
+
+    </div>
+
+    <details>
+        <summary>Security Notes</summary>
+        <div class="tips-body">
+            <ul>
+                <li><strong>Passphrase strength:</strong> Use ≥ 5 random words agreed on in person —
+                    e.g. <em>blue-elephant-dance-midnight-2026</em>. Short passwords are brute-forceable.</li>
+                <li><strong>Never hardcode it:</strong> Do not edit the HTML to include the passphrase before
+                    uploading to GitHub. The field must stay blank in the source.</li>
+                <li><strong>Save this file locally:</strong> Download this HTML to your phone as a backup
+                    so it works even if the hosted URL changes.</li>
+                <li><strong>Zero RAM trace:</strong> Closing or refreshing the tab permanently wipes the
+                    decrypted image — re-upload the .enc file to view it again.</li>
+                <li><strong>Fully offline:</strong> Switch to Airplane Mode after the page loads;
+                    encryption and decryption work without any internet connection.</li>
+                <li><strong>Crypto spec:</strong> AES-256-GCM authenticated encryption with
+                    PBKDF2-SHA256 key stretching at 310,000 iterations (OWASP 2023 minimum).</li>
+                <li><strong>iOS note:</strong> On iPhone/iPad, use the hosted HTTPS GitHub Pages URL —
+                    Web Crypto is disabled on <code>file://</code> URLs in Safari.</li>
+            </ul>
+        </div>
+    </details>
+
+</div>
+
+<script>
+/* ─── Constants ─────────────────────────────────────────────────── */
+const MAGIC  = new Uint8Array([0x50, 0x56, 0x4C, 0x54]); // "PVLT"
+const VER    = 1;
+const SALT_L = 16;
+const IV_L   = 12;
+const ITER   = 310_000;
+const MAX_SZ = 20 * 1024 * 1024; // 20 MB
+
+/* ─── State ──────────────────────────────────────────────────────── */
+let prevDecryptUrl = null;  // blob URL for current preview (revoked on next decrypt)
+let decryptedName  = null;  // original filename from encrypted payload
+let iosUrl         = null;  // kept alive for manual iOS tap
+let encryptedBlob  = null;  // last encrypted output blob (for share button)
+let encryptedFname = null;  // corresponding filename
+
+/* ─── Crypto availability check ──────────────────────────────────── */
+if (!window.crypto || !window.crypto.subtle) {
+    document.getElementById('crypto-warn').style.display = 'block';
+    document.querySelectorAll('.action-btn').forEach(b => b.disabled = true);
+}
+
+/* ─── Key derivation ─────────────────────────────────────────────── */
+async function deriveKey(password, salt) {
+    const raw = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(password),
+        "PBKDF2",
+        false,
+        ["deriveKey"]
+    );
+    return crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt, iterations: ITER, hash: "SHA-256" },
+        raw,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
+
+/* ─── MIME fallback from extension ───────────────────────────────── */
+function resolveMime(file) {
+    if (file.type) return file.type;
+    const ext = file.name.slice(file.name.lastIndexOf('.') + 1).toLowerCase();
+    return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+             gif: 'image/gif', webp: 'image/webp',
+             heic: 'image/heic', heif: 'image/heif' }[ext] || 'image/jpeg';
+}
+
+/* ─── UI helpers ─────────────────────────────────────────────────── */
+function setStatus(msg, type) {
+    const el = document.getElementById('statusMsg');
+    el.textContent = msg;
+    el.className = 'status ' + (type || '');
+}
+
+function setSpinner(on, label) {
+    document.getElementById('spinnerWrap').style.display = on ? 'block' : 'none';
+    if (label) document.getElementById('spinnerLabel').textContent = label;
+}
+
+function lockButtons(locked) {
+    document.querySelectorAll('.action-btn').forEach(b => b.disabled = locked);
+}
+
+function togglePassphrase() {
+    const inp = document.getElementById('passphrase');
+    const btn = document.getElementById('toggleBtn');
+    const isHidden = inp.type === 'password';
+    inp.type   = isHidden ? 'text' : 'password';
+    btn.textContent = isHidden ? 'Hide' : 'Show';
+}
+
+/* ─── File-selection feedback ────────────────────────────────────── */
+function onEncryptFileChosen(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const label = document.getElementById('encryptLabel');
+    label.textContent = file.name;
+    label.className = 'dz-selected';
+    const warn = document.getElementById('sizeWarning');
+    warn.style.display = file.size > MAX_SZ ? 'block' : 'none';
+}
+
+function onDecryptFileChosen(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const label = document.getElementById('decryptLabel');
+    label.textContent = file.name;
+    label.className = 'dz-selected';
+}
+
+/* ─── Drag & drop ────────────────────────────────────────────────── */
+function initDropzone(zoneId, inputId, onChosen) {
+    const zone  = document.getElementById(zoneId);
+    const input = document.getElementById(inputId);
+
+    zone.addEventListener('dragover', e => {
+        e.preventDefault();
+        zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (!files.length) return;
+        const dt = new DataTransfer();
+        dt.items.add(files[0]);
+        input.files = dt.files;
+        onChosen(input);
+    });
+}
+
+initDropzone('encryptDrop', 'imageInput', onEncryptFileChosen);
+initDropzone('decryptDrop', 'encInput',   onDecryptFileChosen);
+
+/* ─── Download helpers ───────────────────────────────────────────── */
+function isIOS() {
+    return /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    if (isIOS()) {
+        // Auto-click is blocked on iOS; show a tappable link instead
+        if (iosUrl) URL.revokeObjectURL(iosUrl);
+        iosUrl = url;
+        const link = document.getElementById('ios-link');
+        link.href        = url;
+        link.download    = filename;
+        link.textContent = `Tap here to save: ${filename}`;
+        link.style.display = 'block';
+    } else {
+        setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    }
+}
+
+/* ─── Encrypt ────────────────────────────────────────────────────── */
+async function encryptFile() {
+    const password  = document.getElementById('passphrase').value;
+    const fileInput = document.getElementById('imageInput');
+
+    if (!password)          { setStatus("Enter a passphrase first.", "error"); return; }
+    if (!fileInput.files[0]) { setStatus("Select an image to encrypt.", "error"); return; }
+
+    const file = fileInput.files[0];
+    if (file.size > MAX_SZ) {
+        setStatus(`File is ${(file.size/1024/1024).toFixed(1)} MB — exceeds the 20 MB limit.`, "error");
+        return;
+    }
+
+    lockButtons(true);
+    setStatus("", "");
+    document.getElementById('share-btn').style.display = 'none';
+    encryptedBlob = null;
+    setSpinner(true, "Deriving key — this takes 1–3 seconds…");
+
+    try {
+        const enc       = new TextEncoder();
+        const imgBuf    = await file.arrayBuffer();
+        const mimeBytes = enc.encode(resolveMime(file));
+        const nameBytes = enc.encode(file.name);
+
+        if (mimeBytes.length > 255)   throw new Error("MIME type string too long.");
+        if (nameBytes.length > 65535) throw new Error("Filename too long.");
+
+        // Plaintext layout:
+        //   [1 B mime_len] [mime_len B MIME] [2 B name_len big-endian] [name_len B name] [image bytes]
+        const ptLen = 1 + mimeBytes.length + 2 + nameBytes.length + imgBuf.byteLength;
+        const pt    = new Uint8Array(ptLen);
+        let off = 0;
+        pt[off++] = mimeBytes.length;
+        pt.set(mimeBytes, off); off += mimeBytes.length;
+        pt[off++] = (nameBytes.length >> 8) & 0xFF;
+        pt[off++] =  nameBytes.length       & 0xFF;
+        pt.set(nameBytes, off); off += nameBytes.length;
+        pt.set(new Uint8Array(imgBuf), off);
+
+        const salt = crypto.getRandomValues(new Uint8Array(SALT_L));
+        const iv   = crypto.getRandomValues(new Uint8Array(IV_L));
+
+        setSpinner(true, "Encrypting…");
+        const key        = await deriveKey(password, salt);
+        const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, pt);
+
+        // File layout (unencrypted header):
+        //   [4 B "PVLT"] [1 B version] [16 B salt] [12 B IV] [ciphertext + 16 B GCM tag]
+        const outLen = 4 + 1 + SALT_L + IV_L + ciphertext.byteLength;
+        const out    = new Uint8Array(outLen);
+        let pos = 0;
+        out.set(MAGIC, pos); pos += 4;
+        out[pos++] = VER;
+        out.set(salt, pos); pos += SALT_L;
+        out.set(iv,   pos); pos += IV_L;
+        out.set(new Uint8Array(ciphertext), pos);
+
+        const dotIdx = file.name.lastIndexOf('.');
+        const base   = dotIdx > 0 ? file.name.slice(0, dotIdx) : file.name;
+        encryptedFname = base + ".enc";
+        encryptedBlob  = new Blob([out], { type: "application/octet-stream" });
+        triggerDownload(encryptedBlob, encryptedFname);
+
+        // Show share button if the browser supports file sharing (mobile only)
+        if (navigator.share && navigator.canShare &&
+            navigator.canShare({ files: [new File([encryptedBlob], encryptedFname)] })) {
+            document.getElementById('share-btn').style.display = 'block';
+        }
+
+        setStatus("Encrypted! Send the .enc file via any channel.", "success");
+    } catch (e) {
+        setStatus("Encryption failed: " + e.message, "error");
+        console.error(e);
+    } finally {
+        setSpinner(false);
+        lockButtons(false);
+    }
+}
+
+/* ─── Decrypt ────────────────────────────────────────────────────── */
+async function decryptFile() {
+    const password  = document.getElementById('passphrase').value;
+    const fileInput = document.getElementById('encInput');
+
+    if (!password)           { setStatus("Enter a passphrase first.", "error"); return; }
+    if (!fileInput.files[0]) { setStatus("Select a .enc file to decrypt.", "error"); return; }
+
+    lockButtons(true);
+    setStatus("", "");
+    document.getElementById('preview').style.display  = 'none';
+    document.getElementById('save-btn').style.display = 'none';
+    setSpinner(true, "Deriving key — this takes 1–3 seconds…");
+
+    // Release previous preview blob
+    if (prevDecryptUrl) { URL.revokeObjectURL(prevDecryptUrl); prevDecryptUrl = null; }
+
+    try {
+        const file = fileInput.files[0];
+        const buf  = new Uint8Array(await file.arrayBuffer());
+
+        // Validate magic bytes
+        if (buf.length < 4 + 1 + SALT_L + IV_L + 17) {
+            setStatus("File is too small to be a vault file.", "error");
+            return;
+        }
+        for (let i = 0; i < 4; i++) {
+            if (buf[i] !== MAGIC[i]) {
+                setStatus("Not a vault file — did you select the correct .enc file?", "error");
+                return;
+            }
+        }
+
+        // Parse unencrypted header
+        // buf[4] = version (reserved for future format changes)
+        const salt       = buf.slice(5, 5 + SALT_L);
+        const iv         = buf.slice(5 + SALT_L, 5 + SALT_L + IV_L);
+        const ciphertext = buf.slice(5 + SALT_L + IV_L);
+
+        setSpinner(true, "Decrypting…");
+        const key = await deriveKey(password, salt);
+
+        let pt;
+        try {
+            pt = new Uint8Array(
+                await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext)
+            );
+        } catch {
+            setStatus("Wrong passphrase — decryption authentication failed.", "error");
+            return;
+        }
+
+        // Parse plaintext header
+        let pOff = 0;
+        const mimeLen = pt[pOff++];
+        const mime     = new TextDecoder().decode(pt.slice(pOff, pOff + mimeLen));
+        pOff += mimeLen;
+        const nameLen  = (pt[pOff] << 8) | pt[pOff + 1];
+        pOff += 2;
+        const fname    = new TextDecoder().decode(pt.slice(pOff, pOff + nameLen));
+        pOff += nameLen;
+        const imgData  = pt.slice(pOff);
+
+        prevDecryptUrl = URL.createObjectURL(new Blob([imgData], { type: mime }));
+        decryptedName  = fname;
+
+        const preview = document.getElementById('preview');
+        preview.src           = prevDecryptUrl;
+        preview.style.display = 'block';
+
+        const saveBtn = document.getElementById('save-btn');
+        saveBtn.textContent   = `Save "${fname}"`;
+        saveBtn.style.display = 'block';
+
+        setStatus("Decryption successful!", "success");
+    } catch (e) {
+        setStatus("Decryption failed: " + e.message, "error");
+        console.error(e);
+    } finally {
+        setSpinner(false);
+        lockButtons(false);
+    }
+}
+
+/* ─── Share encrypted file ───────────────────────────────────────── */
+async function shareEncrypted() {
+    if (!encryptedBlob || !encryptedFname) return;
+    const shareFile = new File([encryptedBlob], encryptedFname, { type: "application/octet-stream" });
+    try {
+        await navigator.share({ files: [shareFile], title: "Encrypted Photo" });
+    } catch (e) {
+        if (e.name !== 'AbortError') {
+            setStatus("Share failed: " + e.message, "error");
+        }
+    }
+}
+
+/* ─── Save decrypted image ───────────────────────────────────────── */
+function saveDecrypted() {
+    if (!prevDecryptUrl || !decryptedName) return;
+    const a   = document.createElement('a');
+    a.href     = prevDecryptUrl;
+    a.download = decryptedName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+</script>
+
+</body>
+</html>
