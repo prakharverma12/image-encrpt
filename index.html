@@ -772,7 +772,7 @@ async function shareEncrypted() {
         if (e.name === 'AbortError') return; // user cancelled — not an error
         // Fallback: file is already in Downloads — guide user to share from there
         setStatus(
-            "Direct share blocked by browser. Open your Files / Downloads app and share "" + encryptedFname + "" from there to WhatsApp.",
+            `Direct share blocked by browser. Open your Files / Downloads app and share "${encryptedFname}" from there to WhatsApp.`,
             "info"
         );
     }
