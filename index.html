@@ -557,9 +557,8 @@ function switchTab(which) {
     document.getElementById('tab-decrypt').classList.toggle('active', which === 'decrypt');
 }
 
-const ro = new ResizeObserver(() => {
-    const stacked = paneEnc.getBoundingClientRect().bottom
-                    <= paneDec.getBoundingClientRect().top + 2;
+function checkLayout() {
+    const stacked = paneDec.offsetTop > paneEnc.offsetTop + 20;
     if (stacked) {
         tabBar.style.display = 'flex';
         paneEnc.classList.toggle('hidden', activeTab !== 'encrypt');
@@ -569,8 +568,12 @@ const ro = new ResizeObserver(() => {
         paneEnc.classList.remove('hidden');
         paneDec.classList.remove('hidden');
     }
-});
+}
+
+const ro = new ResizeObserver(checkLayout);
 ro.observe(document.getElementById('panelsRow'));
+// ResizeObserver doesn't fire on initial load — run once immediately
+checkLayout();
 
 /* ─── Key derivation ─────────────────────────────────────────────── */
 async function deriveKey(password, salt) {
