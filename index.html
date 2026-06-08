@@ -472,11 +472,11 @@
             <!-- Decrypt panel -->
             <div class="panel panel-decrypt" id="pane-decrypt">
                 <div class="panel-title">Receiver — Decrypt Photo</div>
-                <label class="field-label" for="encInput">Select or drop the .pvlt.pdf or .enc file</label>
+                <label class="field-label" for="encInput">Select or drop the encrypted PDF</label>
                 <div class="dropzone" id="decryptDrop">
                     <div class="dz-icon">🔐</div>
                     <span id="decryptLabel">Tap to choose or drag &amp; drop</span>
-                    <input type="file" id="encInput" accept=".pvlt.pdf,.pdf,.enc,application/pdf,application/octet-stream"
+                    <input type="file" id="encInput" accept=".pdf,application/pdf"
                            onchange="onDecryptFileChosen(this)">
                 </div>
                 <button class="action-btn btn-decrypt" onclick="decryptFile()">
@@ -510,7 +510,7 @@
                 <li><strong>Save this file locally:</strong> Download this HTML to your phone as a backup
                     so it works even if the hosted URL changes.</li>
                 <li><strong>Zero RAM trace:</strong> Closing or refreshing the tab permanently wipes the
-                    decrypted image — re-upload the .enc file to view it again.</li>
+                    decrypted image — re-upload the encrypted PDF to view it again.</li>
                 <li><strong>Fully offline:</strong> Switch to Airplane Mode after the page loads;
                     encryption and decryption work without any internet connection.</li>
                 <li><strong>Crypto spec:</strong> AES-256-GCM authenticated encryption with
@@ -531,11 +531,9 @@
 
 <script>
 /* ─── Constants ─────────────────────────────────────────────────── */
-const MAGIC       = new Uint8Array([0x50, 0x56, 0x4C, 0x54]); // "PVLT"
-const VER         = 2;        // Argon2id (VER=1 = legacy PBKDF2, still readable)
+const VER         = 2;        // Argon2id payload version
 const SALT_L      = 16;
 const IV_L        = 12;
-const ITER        = 310_000;  // PBKDF2 iterations — VER=1 decryption only
 const ARGON2_MEM  = 65536;    // 64 MB memory cost (KB units)
 const ARGON2_TIME = 3;        // iterations
 const ARGON2_PAR  = 1;        // parallelism (WASM is single-threaded)
@@ -568,7 +566,7 @@ function generateCamouflageName() {
   ];
   const year   = new Date().getFullYear();
   const serial = String(Math.floor(1000 + Math.random() * 9000));
-  return `${prefix}${year}_${serial}.pvlt.pdf`;
+  return `${prefix}${year}_${serial}.pdf`;
 }
 
 /* ─── Real PDF carriers (base64) ─────────────────────────────────── */
@@ -609,7 +607,14 @@ function wipeDecryptedPreview() {
     if (wipeTimer) { clearTimeout(wipeTimer); wipeTimer = null; }
 }
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') wipeDecryptedPreview();
+    if (document.visibilityState === 'hidden') {
+        const hadSensitiveContent = prevDecryptUrl !== null || decryptedName !== null;
+        wipeDecryptedPreview();
+        // Hard reload forces the OS to discard any in-flight DOM serialization
+        // that mobile IABs perform when a tab is swapped to background, preventing
+        // passphrase or plaintext image data from landing in the OS swap file.
+        if (hadSensitiveContent) location.reload();
+    }
 });
 
 /* ─── Crypto availability check ──────────────────────────────────── */
@@ -660,25 +665,7 @@ requestAnimationFrame(checkLayout);
 
 /* ─── Key derivation ─────────────────────────────────────────────── */
 
-// Legacy VER=1 files — kept for backward-compat decryption only
-async function deriveKeyLegacy(password, salt) {
-    const raw = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(password),
-        "PBKDF2",
-        false,
-        ["deriveKey"]
-    );
-    return crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt, iterations: ITER, hash: "SHA-256" },
-        raw,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-    );
-}
-
-// VER=2 — Argon2id (memory-hard; resists GPU brute-force)
+// Argon2id (memory-hard; resists GPU brute-force)
 async function deriveKey(password, salt) {
     const result = await argon2.hash({
         pass: password,
@@ -715,58 +702,137 @@ function _pdfParseTrailer(bytes) {
     return { size: parseInt(sizeM[1], 10), rootRef: `${rootM[1]} ${rootM[2]} R` };
 }
 
-function _pdfBuildStreamObject(objNum, data) {
-    const enc = new TextEncoder();
-    const pre  = enc.encode(`${objNum} 0 obj\n<< /Length ${data.length} >>\nstream\n`);
-    const post = enc.encode('\nendstream\nendobj\n');
-    const out  = new Uint8Array(pre.length + data.length + post.length);
-    out.set(pre, 0);
-    out.set(data, pre.length);
-    out.set(post, pre.length + data.length);
-    return out;
+/* Random hex string of n bytes — used for PDF comment noise */
+function _randHex(n) {
+    const b = crypto.getRandomValues(new Uint8Array(n));
+    return Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+/* XMP metadata block disguised as a Word re-save.
+   Version byte is embedded in the build number's last 4 digits:
+   VER=2 → build suffix "2000", so CreatorTool ends in "…16827.2000". */
+function _buildXmpMetadata() {
+    const buildSuffix = `${VER}${'0'.repeat(3)}`;
+    const mo  = String(Math.floor(Math.random() * 12) + 1).padStart(2, '0');
+    const dy  = String(Math.floor(Math.random() * 28) + 1).padStart(2, '0');
+    const hr  = String(Math.floor(Math.random() * 23)).padStart(2, '0');
+    const mn  = String(Math.floor(Math.random() * 59)).padStart(2, '0');
+    const tool = `Microsoft Word 16.0.16827.${buildSuffix}`;
+    return `<?xpacket begin='﻿' id='W5M0MpCehiHzreSzNTczkc9d'?>
+<x:xmpmeta xmlns:x='adobe:ns:meta/' x:xmptk='Adobe XMP Core 9.1'>
+  <rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>
+    <rdf:Description rdf:about=''
+        xmlns:xmp='http://ns.adobe.com/xap/1.0/'
+        xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/'
+        xmlns:pdf='http://ns.adobe.com/pdf/1.3/'>
+      <xmp:CreatorTool>${tool}</xmp:CreatorTool>
+      <xmp:ModifyDate>2024-${mo}-${dy}T${hr}:${mn}:00+05:30</xmp:ModifyDate>
+      <pdf:Producer>${tool}</pdf:Producer>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end='r'?>`;
 }
 
 function buildVaultPdf(pvltBytes) {
-    const base      = pickBasePdf();
-    const prevXref  = _pdfFindLastStartxref(base);
+    const enc  = new TextEncoder();
+    const base = pickBasePdf();
+    const prevXref = _pdfFindLastStartxref(base);
     const { size, rootRef } = _pdfParseTrailer(base);
 
-    const newObjNum    = size;
-    const newObj       = _pdfBuildStreamObject(newObjNum, pvltBytes);
-    const newObjOffset = base.length;
-    const newXrefOff   = newObjOffset + newObj.length;
+    // Object numbers for our two new objects
+    const metaObjNum    = size;
+    const payloadObjNum = size + 1;
 
-    const enc     = new TextEncoder();
+    // ── XMP metadata object (disguises vault as a Word re-save) ──────────
+    const xmpStr   = _buildXmpMetadata();
+    const xmpBytes = enc.encode(xmpStr);
+    const xmpHeader = enc.encode(
+        `% ${_randHex(8)}\n% ${_randHex(6)}\n` +
+        `${metaObjNum} 0 obj\n% ${_randHex(5)}\n` +
+        `<< /Type /Metadata /Subtype /XML /Length ${xmpBytes.length} >>\n` +
+        `stream\n`
+    );
+    const xmpFooter = enc.encode('\nendstream\nendobj\n');
+
+    // ── Noise between the two objects ────────────────────────────────────
+    const midNoise = enc.encode(`% ${_randHex(10)}\n% ${_randHex(7)}\n`);
+
+    // ── Payload object (raw encrypted bytes, no PVLT magic) ──────────────
+    const payHeader = enc.encode(
+        `% ${_randHex(9)}\n% ${_randHex(5)}\n` +
+        `${payloadObjNum} 0 obj\n% ${_randHex(6)}\n` +
+        `<< /Length ${pvltBytes.length} >>\n` +
+        `stream\n`
+    );
+    const payFooter = enc.encode('\nendstream\nendobj\n');
+
+    // ── Compute byte offsets ─────────────────────────────────────────────
+    const xmpObjOff  = base.length;
+    const xmpObjLen  = xmpHeader.length + xmpBytes.length + xmpFooter.length;
+    const midNoiseOff = xmpObjOff + xmpObjLen;
+    const payObjOff  = midNoiseOff + midNoise.length;
+    const payObjLen  = payHeader.length + pvltBytes.length + payFooter.length;
+    const xrefOff    = payObjOff + payObjLen;
+
     const xrefTail = enc.encode(
-        `xref\n${newObjNum} 1\n${String(newObjOffset).padStart(10, '0')} 00000 n \n` +
-        `trailer\n<< /Size ${newObjNum + 1} /Prev ${prevXref} /Root ${rootRef} >>\n` +
-        `startxref\n${newXrefOff}\n%%EOF\n`
+        `xref\n${metaObjNum} 2\n` +
+        `${String(xmpObjOff).padStart(10, '0')} 00000 n \n` +
+        `${String(payObjOff).padStart(10, '0')} 00000 n \n` +
+        `trailer\n<< /Size ${payloadObjNum + 1} /Prev ${prevXref} /Root ${rootRef} /Info ${metaObjNum} 0 R >>\n` +
+        `startxref\n${xrefOff}\n%%EOF\n`
     );
 
-    const total = base.length + newObj.length + xrefTail.length;
+    const total = base.length + xmpObjLen + midNoise.length + payObjLen + xrefTail.length;
     const out   = new Uint8Array(total);
-    out.set(base, 0);
-    out.set(newObj, base.length);
-    out.set(xrefTail, base.length + newObj.length);
+    let p = 0;
+    out.set(base,      p); p += base.length;
+    out.set(xmpHeader, p); p += xmpHeader.length;
+    out.set(xmpBytes,  p); p += xmpBytes.length;
+    out.set(xmpFooter, p); p += xmpFooter.length;
+    out.set(midNoise,  p); p += midNoise.length;
+    out.set(payHeader, p); p += payHeader.length;
+    out.set(pvltBytes, p); p += pvltBytes.length;
+    out.set(payFooter, p); p += payFooter.length;
+    out.set(xrefTail,  p);
     return out;
 }
 
-/* ─── PVLT payload locator (handles PDF stream embed, old delimiter, raw .enc) ── */
+/* ─── Vault payload locator — structural xref parse, no magic bytes ── */
 function findPvltPayload(buf) {
-    // Primary: %%PVLT%% delimiter (files encrypted before the stream-embed format)
-    const delim = new TextEncoder().encode('%%PVLT%%');
-    outer: for (let i = 0; i <= buf.length - delim.length; i++) {
-        for (let j = 0; j < delim.length; j++) {
-            if (buf[i + j] !== delim[j]) continue outer;
-        }
-        return buf.subarray(i + delim.length);
-    }
-    // Fallback: scan for PVLT magic bytes (new PDF stream format + legacy .enc)
-    for (let i = 0; i <= buf.length - 4; i++) {
-        if (buf[i] === 0x50 && buf[i+1] === 0x56 && buf[i+2] === 0x4C && buf[i+3] === 0x54)
-            return buf.subarray(i);
-    }
-    return null;
+    const dec = new TextDecoder('latin1');
+
+    // Find the last startxref in the tail (our incremental update)
+    const tail = dec.decode(buf.slice(-2048));
+    const lastSxIdx = tail.lastIndexOf('startxref');
+    if (lastSxIdx === -1) return null;
+    const xrefNumM = tail.slice(lastSxIdx).match(/^startxref\s+(\d+)/);
+    if (!xrefNumM) return null;
+    const xrefTableOff = parseInt(xrefNumM[1], 10);
+
+    // Parse the xref table at that offset
+    const xrefText = dec.decode(buf.slice(xrefTableOff, xrefTableOff + 512));
+    const xrefM = xrefText.match(/^xref\n(\d+) (\d+)\n/);
+    if (!xrefM) return null;
+    const count = parseInt(xrefM[2], 10);
+    if (count < 2) return null; // we always write 2 objects (XMP + payload)
+
+    // Payload is always the last entry in our xref (20 bytes per entry)
+    const entriesRelOff = xrefM[0].length;
+    const lastEntryOff  = xrefTableOff + entriesRelOff + (count - 1) * 20;
+    const lastEntry     = dec.decode(buf.slice(lastEntryOff, lastEntryOff + 20));
+    const entryM        = lastEntry.match(/^(\d{10}) \d{5} n/);
+    if (!entryM) return null;
+    const payObjOff = parseInt(entryM[1], 10);
+
+    // Locate stream content inside the payload object
+    const objText  = dec.decode(buf.slice(payObjOff, payObjOff + 512));
+    const lenM     = objText.match(/\/Length\s+(\d+)/);
+    const streamM  = objText.match(/stream\r?\n/);
+    if (!lenM || !streamM) return null;
+    const streamLen   = parseInt(lenM[1], 10);
+    const streamStart = payObjOff + streamM.index + streamM[0].length;
+    return buf.slice(streamStart, streamStart + streamLen);
 }
 
 /* ─── MIME fallback from extension ───────────────────────────────── */
@@ -937,11 +1003,10 @@ async function encryptFile() {
         const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, pt);
 
         // File layout (unencrypted header):
-        //   [4 B "PVLT"] [1 B version] [16 B salt] [12 B IV] [ciphertext + 16 B GCM tag]
-        const outLen = 4 + 1 + SALT_L + IV_L + ciphertext.byteLength;
+        //   [1 B version] [16 B salt] [12 B IV] [ciphertext + 16 B GCM tag]
+        const outLen = 1 + SALT_L + IV_L + ciphertext.byteLength;
         const out    = new Uint8Array(outLen);
         let pos = 0;
-        out.set(MAGIC, pos); pos += 4;
         out[pos++] = VER;
         out.set(salt, pos); pos += SALT_L;
         out.set(iv,   pos); pos += IV_L;
@@ -958,7 +1023,7 @@ async function encryptFile() {
             document.getElementById('share-btn').style.display = 'block';
         }
 
-        setStatus("Encrypted! Share the .pdf — works on WhatsApp, email, and more.", "success");
+        setStatus("Encrypted! Share the PDF — works on WhatsApp, email, and more.", "success");
     } catch (e) {
         setStatus("Encryption failed: " + e.message, "error");
         console.error(e);
@@ -974,7 +1039,7 @@ async function decryptFile() {
     const fileInput = document.getElementById('encInput');
 
     if (!password)           { setStatus("Enter a passphrase first.", "error"); return; }
-    if (!fileInput.files[0]) { setStatus("Select a .pvlt.pdf or .enc file to decrypt.", "error"); return; }
+    if (!fileInput.files[0]) { setStatus("Select an encrypted PDF to decrypt.", "error"); return; }
 
     lockButtons(true);
     setStatus("", "");
@@ -989,22 +1054,24 @@ async function decryptFile() {
         const file = fileInput.files[0];
         const buf  = new Uint8Array(await file.arrayBuffer());
 
-        // Locate PVLT payload: inside PDF wrapper (%%PVLT%% delimiter) or legacy .enc (starts with PVLT)
+        // Locate payload via structural xref parse (no magic bytes)
         const pvlt = findPvltPayload(buf);
-        if (!pvlt || pvlt.length < 4 + 1 + SALT_L + IV_L + 17) {
-            setStatus("Not a vault file — select a .pvlt.pdf or .enc file.", "error");
+        if (!pvlt || pvlt.length < 1 + SALT_L + IV_L + 17) {
+            setStatus("Not a vault file — select the encrypted PDF.", "error");
             return;
         }
 
-        const pvltVersion = pvlt[4];  // 1 = PBKDF2 (legacy), 2 = Argon2id
-        const salt       = pvlt.slice(5, 5 + SALT_L);
-        const iv         = pvlt.slice(5 + SALT_L, 5 + SALT_L + IV_L);
-        const ciphertext = pvlt.slice(5 + SALT_L + IV_L);
+        const pvltVersion = pvlt[0];
+        if (pvltVersion !== VER) {
+            setStatus("Unsupported vault format.", "error");
+            return;
+        }
+        const salt       = pvlt.slice(1, 1 + SALT_L);
+        const iv         = pvlt.slice(1 + SALT_L, 1 + SALT_L + IV_L);
+        const ciphertext = pvlt.slice(1 + SALT_L + IV_L);
 
-        setSpinner(true, pvltVersion === 1 ? "Deriving key (legacy)…" : "Deriving key — Argon2id…");
-        const key = pvltVersion === 1
-            ? await deriveKeyLegacy(password, salt)
-            : await deriveKey(password, salt);
+        setSpinner(true, "Deriving key — Argon2id…");
+        const key = await deriveKey(password, salt);
 
         let pt;
         try {
@@ -1016,18 +1083,20 @@ async function decryptFile() {
             return;
         }
 
-        // Parse plaintext header
+        // Parse plaintext header, then zero the full plaintext immediately
         let pOff = 0;
         const mimeLen = pt[pOff++];
-        const mime     = new TextDecoder().decode(pt.slice(pOff, pOff + mimeLen));
+        const mime    = new TextDecoder().decode(pt.slice(pOff, pOff + mimeLen));
         pOff += mimeLen;
-        const nameLen  = (pt[pOff] << 8) | pt[pOff + 1];
+        const nameLen = (pt[pOff] << 8) | pt[pOff + 1];
         pOff += 2;
-        const fname    = new TextDecoder().decode(pt.slice(pOff, pOff + nameLen));
+        const fname   = new TextDecoder().decode(pt.slice(pOff, pOff + nameLen));
         pOff += nameLen;
-        const imgData  = pt.slice(pOff);
+        const imgData = pt.slice(pOff);  // slice = copy, safe to zero pt now
+        pt.fill(0);
 
         prevDecryptUrl = URL.createObjectURL(new Blob([imgData], { type: mime }));
+        imgData.fill(0);  // Blob has its own copy; zero our typed array
         decryptedName  = fname;
 
         const preview = document.getElementById('preview');
