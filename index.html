@@ -558,7 +558,9 @@ function switchTab(which) {
 }
 
 function checkLayout() {
-    const stacked = paneDec.offsetTop > paneEnc.offsetTop + 20;
+    // Measure row WIDTH — unaffected by hiding child panels, so no feedback loop.
+    // 260 + 16 (gap) + 260 = 536px: minimum width to fit two columns.
+    const stacked = document.getElementById('panelsRow').offsetWidth < 536;
     if (stacked) {
         tabBar.style.display = 'flex';
         paneEnc.classList.toggle('hidden', activeTab !== 'encrypt');
@@ -570,13 +572,15 @@ function checkLayout() {
     }
 }
 
-let roTimer;
-const ro = new ResizeObserver(() => {
-    clearTimeout(roTimer);
-    roTimer = setTimeout(checkLayout, 60);
+// window.resize only fires on viewport size changes — NOT on content height changes,
+// so hiding a panel never re-triggers this. No feedback loop possible.
+let resizeTimer;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(checkLayout, 80);
 });
-ro.observe(document.getElementById('panelsRow'));
-// Run after first layout pass — offsetTop is 0 until the browser paints
+
+// rAF defers until after the browser's first layout pass (offsetWidth is 0 before that)
 requestAnimationFrame(checkLayout);
 
 /* ─── Key derivation ─────────────────────────────────────────────── */
